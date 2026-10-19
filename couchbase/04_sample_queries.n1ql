@@ -1,0 +1,123 @@
+-- =============================================================================
+-- SAMPLE N1QL QUERIES -- N1QL is Couchbase's SQL-like query language, so
+-- most of this will read very familiarly if you've written the Oracle
+-- version: JOIN, GROUP BY, HAVING, and subqueries all exist. The differences
+-- worth calling out: UNNEST (for arrays embedded inside a document) stands
+-- in for what would otherwise be a join to a child table, and ANY/EVERY
+-- satisfy quantified conditions over an embedded array.
+-- =============================================================================
+
+-- -- Q1. Visitor + ticket + RFID + ride + reservation + queue status
+--    (relational: 5-table JOIN -> here: JOIN across 3 collections, then
+--    UNNEST the embedded queueSlots array instead of a 4th/5th join)
+SELECT v.name AS visitor, t.ticketId, t.rfidTag, r.rideName,
+       resv.reservationDate, qs.status AS queueStatus
+FROM `theme_park`.`park`.`visitors` v
+JOIN `theme_park`.`park`.`tickets` t       ON t.visitorId = v.personId
+JOIN `theme_park`.`park`.`reservations` resv ON resv.ticketId = t.ticketId
+JOIN `theme_park`.`park`.`rides` r          ON r.rideId = resv.rideId
+LEFT UNNEST resv.queueSlots qs
+ORDER BY visitor;
+
+-- -- Q2. Ride + employee + department + sensor + maintenance, UNNESTing the
+--    embedded maintenance.assignments array instead of a junction-table join
+SELECT r.rideName, e.name AS employee, d.deptName, s.healthStatus,
+       m.maintType, m.status AS maintStatus, r.operationalStatus
+FROM `theme_park`.`park`.`rides` r
+JOIN `theme_park`.`park`.`maintenance` m ON m.rideId = r.rideId
+UNNEST m.assignments asg
+JOIN `theme_park`.`park`.`employees` e  ON e.personId = asg.employeeId
+JOIN `theme_park`.`park`.`departments` d ON d.deptId = e.deptId
+LEFT JOIN `theme_park`.`park`.`sensors` s ON s.rideId = r.rideId;
+
+-- -- Q3. Total ride participation per ride (aggregate + GROUP BY)
+SELECT r.rideName, COUNT(p.participationId) AS visitorCount
+FROM `theme_park`.`park`.`rides` r
+LEFT JOIN `theme_park`.`park`.`participations` p ON p.rideId = r.rideId
+GROUP BY r.rideName
+ORDER BY visitorCount DESC;
+
+-- -- Q4. Departments with more than two employees (GROUP BY + HAVING --
+--    identical shape to standard SQL)
+SELECT d.deptName, COUNT(e.personId) AS employeeCount
+FROM `theme_park`.`park`.`departments` d
+JOIN `theme_park`.`park`.`employees` e ON e.deptId = d.deptId
+GROUP BY d.deptName
+HAVING COUNT(e.personId) > 2;
+
+-- -- Q5. Total / average / max / min customer ratings
+SELECT SUM(rating) AS totalRating, ROUND(AVG(rating),2) AS avgRating,
+       MAX(rating) AS maxRating, MIN(rating) AS minRating
+FROM `theme_park`.`park`.`feedback`;
+
+-- -- Q6. Rides with above-average visitor participation (nested subquery)
+SELECT r.rideName, COUNT(p.participationId) AS visitorCount
+FROM `theme_park`.`park`.`rides` r
+JOIN `theme_park`.`park`.`participations` p ON p.rideId = r.rideId
+GROUP BY r.rideName
+HAVING COUNT(p.participationId) > (
+  SELECT RAW AVG(cnt) FROM (
+    SELECT COUNT(*) AS cnt FROM `theme_park`.`park`.`participations` GROUP BY rideId
+  ) AS sub
+)[0];
+
+-- -- Q7. Rides whose average rating beats the park-wide average rating
+SELECT r.rideName, ROUND(AVG(f.rating),2) AS avgRideRating
+FROM `theme_park`.`park`.`rides` r
+JOIN `theme_park`.`park`.`feedback` f ON f.rideId = r.rideId
+GROUP BY r.rideName
+HAVING AVG(f.rating) > (SELECT RAW AVG(rating) FROM `theme_park`.`park`.`feedback`)[0];
+
+-- -- Q8. Rides whose maintenance cost exceeds the average cost for rides of
+--    the SAME type (correlated subquery)
+SELECT r.rideName, r.rideType, m.maintId, m.cost
+FROM `theme_park`.`park`.`rides` r
+JOIN `theme_park`.`park`.`maintenance` m ON m.rideId = r.rideId
+WHERE m.cost > (
+  SELECT RAW AVG(m2.cost)
+  FROM `theme_park`.`park`.`maintenance` m2
+  JOIN `theme_park`.`park`.`rides` r2 ON r2.rideId = m2.rideId
+  WHERE r2.rideType = r.rideType
+)[0];
+
+-- -- Q9. Rides with at least one safety incident/accident (EXISTS-equivalent)
+SELECT r.rideName
+FROM `theme_park`.`park`.`rides` r
+WHERE EXISTS (SELECT 1 FROM `theme_park`.`park`.`accidentReports` ar WHERE ar.rideId = r.rideId)
+   OR EXISTS (SELECT 1 FROM `theme_park`.`park`.`emergencyIncidents` ei WHERE ei.rideId = r.rideId);
+
+-- -- Q10. Complex operational report -- participation, rating, maintenance
+--     count/cost, safety-incident count, above-average-participation rides
+SELECT r.rideId, r.rideName, r.rideType,
+  (SELECT RAW COUNT(*) FROM `theme_park`.`park`.`participations` p WHERE p.rideId = r.rideId)[0] AS totalParticipation,
+  (SELECT RAW ROUND(AVG(f.rating),2) FROM `theme_park`.`park`.`feedback` f WHERE f.rideId = r.rideId)[0] AS avgRating,
+  (SELECT RAW COUNT(*) FROM `theme_park`.`park`.`maintenance` m WHERE m.rideId = r.rideId)[0] AS maintCount,
+  (SELECT RAW IFMISSINGORNULL(SUM(m.cost),0) FROM `theme_park`.`park`.`maintenance` m WHERE m.rideId = r.rideId)[0] AS totalMaintCost,
+  ((SELECT RAW COUNT(*) FROM `theme_park`.`park`.`accidentReports` ar WHERE ar.rideId = r.rideId)[0]
+   + (SELECT RAW COUNT(*) FROM `theme_park`.`park`.`emergencyIncidents` ei WHERE ei.rideId = r.rideId)[0]) AS safetyIncidentCount,
+  r.operationalStatus
+FROM `theme_park`.`park`.`rides` r
+WHERE (SELECT RAW COUNT(*) FROM `theme_park`.`park`.`participations` p WHERE p.rideId = r.rideId)[0] >
+      (SELECT RAW AVG(cnt) FROM (SELECT COUNT(*) AS cnt FROM `theme_park`.`park`.`participations` GROUP BY rideId) AS sub)[0];
+
+-- -- Q11. ARRAY/ANY-SATISFIES demo: rides where ANY embedded queue slot (in
+--    any reservation for that ride) is currently WAITING -- this kind of
+--    "does any item in this embedded array match" check is where N1QL's
+--    array functions replace a join to a child table entirely.
+SELECT r.rideName
+FROM `theme_park`.`park`.`rides` r
+JOIN `theme_park`.`park`.`reservations` resv ON resv.rideId = r.rideId
+WHERE ANY qs IN resv.queueSlots SATISFIES qs.status = "WAITING" END;
+
+-- -- Q12. Document-DB bonus: fetch one visitor's ENTIRE activity (tickets,
+--    reservations, participations, feedback) in minimal round-trips -- the
+--    kind of "give me everything about this one entity" read a document
+--    store is built for, versus assembling it from many relational tables.
+SELECT v,
+  (SELECT t.* FROM `theme_park`.`park`.`tickets` t WHERE t.visitorId = v.personId) AS tickets,
+  (SELECT p.* FROM `theme_park`.`park`.`participations` p
+     JOIN `theme_park`.`park`.`tickets` t2 ON t2.ticketId = p.ticketId
+     WHERE t2.visitorId = v.personId) AS ridesTaken,
+  (SELECT f.* FROM `theme_park`.`park`.`feedback` f WHERE f.visitorId = v.personId) AS feedbackGiven
+FROM `theme_park`.`park`.`visitors` v
+WHERE v.personId = "P001";

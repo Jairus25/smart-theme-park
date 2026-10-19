@@ -1,0 +1,40 @@
+-- =============================================================================
+-- SMART THEME PARK OPERATIONS MANAGEMENT SYSTEM -- Couchbase (document DB)
+-- Digital Assignment 3 : Advanced Database Technology
+-- -----------------------------------------------------------------------------
+-- Run this FIRST, in the Capella "Query Workbench" (or cbq / cbshell),
+-- connected to your cluster. It creates one bucket, one scope, and one
+-- collection per entity -- the document-DB equivalent of CREATE TABLE.
+-- A collection does NOT enforce a fixed set of columns (schema-on-read),
+-- which is why there is no column-by-column DDL here the way there was for
+-- Oracle; shape is enforced in the application layer and demonstrated by
+-- the sample documents in 03_sample_data.n1ql.
+--
+-- IMPORTANT: the bucket itself ("theme_park") must be created first from the
+-- Capella UI (Clusters -> your cluster -> "theme_park" bucket, any size on
+-- the free tier) -- buckets cannot be created with N1QL on Capella's
+-- restricted query role. Everything below (scope + collections) CAN run
+-- from Query Workbench once the bucket exists.
+-- =============================================================================
+
+CREATE SCOPE `theme_park`.`park` IF NOT EXISTS;
+
+CREATE COLLECTION `theme_park`.`park`.`visitors`           IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`employees`          IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`vendors`             IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`departments`         IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`rides`                IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`tickets`              IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`reservations`         IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`participations`       IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`sensors`              IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`maintenance`          IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`schedules`            IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`feedback`             IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`accidentReports`      IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`emergencyIncidents`   IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`lostItems`            IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`shops`                IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`restaurants`          IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`inventoryItems`       IF NOT EXISTS;
+CREATE COLLECTION `theme_park`.`park`.`weatherLogs`          IF NOT EXISTS;

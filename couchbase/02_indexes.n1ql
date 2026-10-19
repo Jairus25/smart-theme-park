@@ -1,0 +1,42 @@
+-- =============================================================================
+-- INDEXES -- run AFTER 01_create_collections.n1ql, BEFORE loading data (or
+-- after; indexes backfill automatically either way, but querying before
+-- these exist will be slow / require a primary index).
+--
+-- Couchbase has no automatic index on a document's key the way a relational
+-- PRIMARY KEY auto-indexes -- key lookups (META().id / USE KEYS) are fast by
+-- design, but any WHERE/JOIN/ORDER BY on a *field* needs an explicit
+-- secondary index, otherwise N1QL raises "No index available" or falls back
+-- to a full primary scan.
+-- =============================================================================
+
+-- Primary indexes (fallback full-collection scan; fine for a small dev/demo
+-- dataset, keep for convenience during development):
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`visitors`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`employees`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`rides`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`tickets`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`reservations`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`participations`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`sensors`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`maintenance`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`departments`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`feedback`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`accidentReports`;
+CREATE PRIMARY INDEX IF NOT EXISTS ON `theme_park`.`park`.`emergencyIncidents`;
+
+-- Targeted secondary indexes matching the app's actual query patterns --
+-- these are the ones that matter for performance and are worth explaining
+-- in the viva as "I indexed the fields I actually filter/join on":
+CREATE INDEX idx_ticket_visitor        IF NOT EXISTS ON `theme_park`.`park`.`tickets`(visitorId);
+CREATE INDEX idx_reservation_ticket    IF NOT EXISTS ON `theme_park`.`park`.`reservations`(ticketId);
+CREATE INDEX idx_reservation_ride      IF NOT EXISTS ON `theme_park`.`park`.`reservations`(rideId);
+CREATE INDEX idx_participation_ticket  IF NOT EXISTS ON `theme_park`.`park`.`participations`(ticketId);
+CREATE INDEX idx_participation_ride    IF NOT EXISTS ON `theme_park`.`park`.`participations`(rideId);
+CREATE INDEX idx_sensor_ride           IF NOT EXISTS ON `theme_park`.`park`.`sensors`(rideId);
+CREATE INDEX idx_maintenance_ride      IF NOT EXISTS ON `theme_park`.`park`.`maintenance`(rideId);
+CREATE INDEX idx_employee_dept         IF NOT EXISTS ON `theme_park`.`park`.`employees`(deptId);
+CREATE INDEX idx_feedback_ride         IF NOT EXISTS ON `theme_park`.`park`.`feedback`(rideId);
+CREATE INDEX idx_feedback_visitor      IF NOT EXISTS ON `theme_park`.`park`.`feedback`(visitorId);
+CREATE INDEX idx_accident_ride         IF NOT EXISTS ON `theme_park`.`park`.`accidentReports`(rideId);
+CREATE INDEX idx_incident_ride         IF NOT EXISTS ON `theme_park`.`park`.`emergencyIncidents`(rideId);

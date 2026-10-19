@@ -1,0 +1,191 @@
+-- =============================================================================
+-- SAMPLE DATA -- run AFTER 01_create_collections.n1ql (indexes can be before
+-- or after; see 02_indexes.n1ql). Same underlying scenario as the relational
+-- and graph versions, reshaped as JSON documents.
+--
+-- Document-modeling decisions worth explaining in the viva:
+--  - EMBED when the child only ever makes sense attached to one parent and
+--    is read together with it: QueueSlot -> embedded array inside its
+--    Reservation document; MaintenanceAssignment -> embedded array inside
+--    its Maintenance document. This mirrors how those were a weak entity /
+--    associative table in the relational design -- but here, reading a
+--    reservation's queue status needs ZERO joins, just one document fetch.
+--  - REFERENCE (store the other document's key as a plain field) when the
+--    child has its own independent lifecycle and is queried on its own:
+--    Ticket -> visitorId (a visitor's tickets are still looked up by a
+--    secondary index on that field, same idea as a relational foreign key,
+--    just resolved by the application or a N1QL JOIN instead of enforced
+--    by the engine).
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- PEOPLE
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`visitors` (KEY, VALUE) VALUES
+  ("visitor::P001", {"type":"visitor","personId":"P001","name":"Aditi Rao","phone":"9840011111","email":"aditi@mail.com","dob":"1995-06-12","membershipNo":"MEM1001","loyaltyPoints":120});
+INSERT INTO `theme_park`.`park`.`visitors` (KEY, VALUE) VALUES
+  ("visitor::P002", {"type":"visitor","personId":"P002","name":"Karthik Iyer","phone":"9840022222","email":"karthik@mail.com","dob":"1988-03-25","membershipNo":"MEM1002","loyaltyPoints":45});
+INSERT INTO `theme_park`.`park`.`visitors` (KEY, VALUE) VALUES
+  ("visitor::P003", {"type":"visitor","personId":"P003","name":"Meena Suresh","phone":"9840033333","email":"meena@mail.com","dob":"2001-11-02","membershipNo":null,"loyaltyPoints":0});
+INSERT INTO `theme_park`.`park`.`visitors` (KEY, VALUE) VALUES
+  ("visitor::P004", {"type":"visitor","personId":"P004","name":"Anjali Nair","phone":"9840044444","email":"anjali@mail.com","dob":"1999-09-09","membershipNo":"MEM1004","loyaltyPoints":0});
+
+INSERT INTO `theme_park`.`park`.`employees` (KEY, VALUE) VALUES
+  ("employee::E001", {"type":"employee","personId":"E001","name":"Ravi Kumar","phone":"9940011111","email":"ravi.k@park.com","hireDate":"2020-01-15","salary":32000,"designation":"Ride Operator","deptId":"D01"});
+INSERT INTO `theme_park`.`park`.`employees` (KEY, VALUE) VALUES
+  ("employee::E002", {"type":"employee","personId":"E002","name":"Priya Das","phone":"9940022222","email":"priya.d@park.com","hireDate":"2019-05-10","salary":45000,"designation":"Maintenance Engineer","deptId":"D02"});
+INSERT INTO `theme_park`.`park`.`employees` (KEY, VALUE) VALUES
+  ("employee::E003", {"type":"employee","personId":"E003","name":"Suresh Babu","phone":"9940033333","email":"suresh.b@park.com","hireDate":"2021-08-01","salary":28000,"designation":"Chef","deptId":"D03"});
+INSERT INTO `theme_park`.`park`.`employees` (KEY, VALUE) VALUES
+  ("employee::E004", {"type":"employee","personId":"E004","name":"Divya Menon","phone":"9940044444","email":"divya.m@park.com","hireDate":"2022-02-20","salary":30000,"designation":"Security Officer","deptId":"D04"});
+
+INSERT INTO `theme_park`.`park`.`vendors` (KEY, VALUE) VALUES
+  ("vendor::V001", {"type":"vendor","personId":"V001","name":"Sunrise Supplies Pvt Ltd","phone":"9900011111","email":"contact@sunrisesupplies.com","contactPerson":"Manoj Pillai","address":"Industrial Estate, Chennai"});
+
+-- ---------------------------------------------------------------------------
+-- DEPARTMENTS
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`departments` (KEY, VALUE) VALUES
+  ("department::D01", {"deptId":"D01","deptName":"Ride Operations","location":"Zone A"});
+INSERT INTO `theme_park`.`park`.`departments` (KEY, VALUE) VALUES
+  ("department::D02", {"deptId":"D02","deptName":"Maintenance","location":"Workshop"});
+INSERT INTO `theme_park`.`park`.`departments` (KEY, VALUE) VALUES
+  ("department::D03", {"deptId":"D03","deptName":"Food Services","location":"Zone B"});
+INSERT INTO `theme_park`.`park`.`departments` (KEY, VALUE) VALUES
+  ("department::D04", {"deptId":"D04","deptName":"Security","location":"Main Gate"});
+
+-- ---------------------------------------------------------------------------
+-- STAFF SCHEDULES
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`schedules` (KEY, VALUE) VALUES
+  ("schedule::SC01", {"scheduleId":"SC01","employeeId":"E001","deptId":"D01","workDate":"2026-08-15","startTime":"08:00","endTime":"16:00"});
+INSERT INTO `theme_park`.`park`.`schedules` (KEY, VALUE) VALUES
+  ("schedule::SC02", {"scheduleId":"SC02","employeeId":"E002","deptId":"D02","workDate":"2026-08-15","startTime":"09:00","endTime":"17:00"});
+INSERT INTO `theme_park`.`park`.`schedules` (KEY, VALUE) VALUES
+  ("schedule::SC03", {"scheduleId":"SC03","employeeId":"E003","deptId":"D03","workDate":"2026-08-15","startTime":"06:00","endTime":"14:00"});
+
+-- ---------------------------------------------------------------------------
+-- RIDES
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`rides` (KEY, VALUE) VALUES
+  ("ride::R01", {"rideId":"R01","rideName":"Thunder Loop","rideType":"THRILL","location":"Zone A","minHeight":140,"duration":3,"operationalStatus":"OPERATIONAL"});
+INSERT INTO `theme_park`.`park`.`rides` (KEY, VALUE) VALUES
+  ("ride::R02", {"rideId":"R02","rideName":"Splash Rapids","rideType":"WATER","location":"Zone C","minHeight":120,"duration":8,"operationalStatus":"OPERATIONAL"});
+INSERT INTO `theme_park`.`park`.`rides` (KEY, VALUE) VALUES
+  ("ride::R03", {"rideId":"R03","rideName":"Magic Carousel","rideType":"FAMILY","location":"Zone B","minHeight":0,"duration":5,"operationalStatus":"OPERATIONAL"});
+INSERT INTO `theme_park`.`park`.`rides` (KEY, VALUE) VALUES
+  ("ride::R04", {"rideId":"R04","rideName":"Sky Drop","rideType":"THRILL","location":"Zone A","minHeight":150,"duration":2,"operationalStatus":"UNDER_MAINTENANCE"});
+
+-- ---------------------------------------------------------------------------
+-- TICKETS (+ RFID + embedded entry log array)
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`tickets` (KEY, VALUE) VALUES
+  ("ticket::T001", {"ticketId":"T001","visitorId":"P001","ticketType":"MULTI_DAY","purchaseDate":"2026-08-01","visitDate":"2026-08-15","price":2500,"rfidTag":"RFID-A001",
+    "entryLogs":[{"entryId":"EN01","entryTime":"2026-08-15T09:05:00","gateId":"GATE1"}]});
+INSERT INTO `theme_park`.`park`.`tickets` (KEY, VALUE) VALUES
+  ("ticket::T002", {"ticketId":"T002","visitorId":"P002","ticketType":"SINGLE_DAY","purchaseDate":"2026-08-10","visitDate":"2026-08-15","price":1200,"rfidTag":"RFID-A002",
+    "entryLogs":[{"entryId":"EN02","entryTime":"2026-08-15T09:20:00","gateId":"GATE2"}]});
+INSERT INTO `theme_park`.`park`.`tickets` (KEY, VALUE) VALUES
+  ("ticket::T003", {"ticketId":"T003","visitorId":"P003","ticketType":"ANNUAL","purchaseDate":"2026-01-05","visitDate":"2026-08-15","price":9000,"rfidTag":"RFID-A003",
+    "entryLogs":[{"entryId":"EN03","entryTime":"2026-08-15T09:30:00","gateId":"GATE1"}]});
+INSERT INTO `theme_park`.`park`.`tickets` (KEY, VALUE) VALUES
+  ("ticket::T004", {"ticketId":"T004","visitorId":"P004","ticketType":"SINGLE_DAY","purchaseDate":"2026-08-16","visitDate":"2026-08-16","price":1200,"rfidTag":"RFID-A004","entryLogs":[]});
+
+-- ---------------------------------------------------------------------------
+-- RIDE RESERVATIONS (virtual queue) with embedded QUEUE SLOTS
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`reservations` (KEY, VALUE) VALUES
+  ("reservation::RES01", {"reservationId":"RES01","ticketId":"T001","rideId":"R01","reservationDate":"2026-08-15","noOfPersons":2,
+    "queueSlots":[{"slotId":"SL01","slotTime":"2026-08-15T10:00:00","status":"BOARDED"}]});
+INSERT INTO `theme_park`.`park`.`reservations` (KEY, VALUE) VALUES
+  ("reservation::RES02", {"reservationId":"RES02","ticketId":"T002","rideId":"R02","reservationDate":"2026-08-15","noOfPersons":1,
+    "queueSlots":[{"slotId":"SL01","slotTime":"2026-08-15T10:15:00","status":"WAITING"}]});
+INSERT INTO `theme_park`.`park`.`reservations` (KEY, VALUE) VALUES
+  ("reservation::RES03", {"reservationId":"RES03","ticketId":"T003","rideId":"R03","reservationDate":"2026-08-15","noOfPersons":4,
+    "queueSlots":[{"slotId":"SL01","slotTime":"2026-08-15T10:30:00","status":"CALLED"}]});
+INSERT INTO `theme_park`.`park`.`reservations` (KEY, VALUE) VALUES
+  ("reservation::RES04", {"reservationId":"RES04","ticketId":"T001","rideId":"R02","reservationDate":"2026-08-15","noOfPersons":2,"queueSlots":[]});
+
+-- ---------------------------------------------------------------------------
+-- RIDE PARTICIPATION (actual RFID-tap ride taken) -- its own collection since
+-- it's queried/aggregated independently (e.g. "all rides this visitor took").
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`participations` (KEY, VALUE) VALUES
+  ("participation::PT01", {"participationId":"PT01","ticketId":"T001","rideId":"R01","rideTime":"2026-08-15T10:05:00","seatNo":"A12","status":"COMPLETED"});
+INSERT INTO `theme_park`.`park`.`participations` (KEY, VALUE) VALUES
+  ("participation::PT02", {"participationId":"PT02","ticketId":"T002","rideId":"R02","rideTime":"2026-08-15T11:00:00","seatNo":"B03","status":"COMPLETED"});
+INSERT INTO `theme_park`.`park`.`participations` (KEY, VALUE) VALUES
+  ("participation::PT03", {"participationId":"PT03","ticketId":"T003","rideId":"R03","rideTime":"2026-08-15T11:45:00","seatNo":"C01","status":"COMPLETED"});
+INSERT INTO `theme_park`.`park`.`participations` (KEY, VALUE) VALUES
+  ("participation::PT04", {"participationId":"PT04","ticketId":"T001","rideId":"R02","rideTime":"2026-08-15T12:00:00","seatNo":"A05","status":"COMPLETED"});
+
+-- ---------------------------------------------------------------------------
+-- IoT SENSORS
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`sensors` (KEY, VALUE) VALUES
+  ("sensor::S01", {"sensorId":"S01","rideId":"R01","sensorType":"Vibration","location":"Zone A","unit":"Hz","installedOn":"2024-01-10","lastReading":2.1,"healthStatus":"HEALTHY"});
+INSERT INTO `theme_park`.`park`.`sensors` (KEY, VALUE) VALUES
+  ("sensor::S02", {"sensorId":"S02","rideId":"R02","sensorType":"Temperature","location":"Zone C","unit":"C","installedOn":"2024-02-15","lastReading":31.5,"healthStatus":"HEALTHY"});
+INSERT INTO `theme_park`.`park`.`sensors` (KEY, VALUE) VALUES
+  ("sensor::S03", {"sensorId":"S03","rideId":"R04","sensorType":"Pressure","location":"Zone A","unit":"bar","installedOn":"2023-11-20","lastReading":8.9,"healthStatus":"CRITICAL"});
+
+-- ---------------------------------------------------------------------------
+-- MAINTENANCE with embedded staff ASSIGNMENTS
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`maintenance` (KEY, VALUE) VALUES
+  ("maintenance::M01", {"maintId":"M01","rideId":"R04","maintType":"INSPECTION","maintDate":"2026-08-10","description":"Routine safety check","status":"COMPLETED","cost":5000,
+    "assignments":[{"employeeId":"E002","hours":3,"action":"Inspected safety harness"}]});
+INSERT INTO `theme_park`.`park`.`maintenance` (KEY, VALUE) VALUES
+  ("maintenance::M02", {"maintId":"M02","rideId":"R04","maintType":"CORRECTIVE","maintDate":"2026-08-12","description":"Hydraulic seal replacement","status":"IN_PROGRESS","cost":15000,
+    "assignments":[{"employeeId":"E002","hours":6,"action":"Replaced hydraulic seal"}]});
+INSERT INTO `theme_park`.`park`.`maintenance` (KEY, VALUE) VALUES
+  ("maintenance::M03", {"maintId":"M03","rideId":"R01","maintType":"PREVENTIVE","maintDate":"2026-08-05","description":"Track lubrication","status":"COMPLETED","cost":2000,"assignments":[]});
+
+-- ---------------------------------------------------------------------------
+-- SHOPS / RESTAURANTS / INVENTORY  (embedded soldAt array demonstrates a
+-- many-to-many without a junction collection)
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`shops` (KEY, VALUE) VALUES
+  ("shop::SH01", {"shopId":"SH01","shopName":"Wonder Gift Shop","location":"Zone B"});
+INSERT INTO `theme_park`.`park`.`restaurants` (KEY, VALUE) VALUES
+  ("restaurant::RT01", {"restId":"RT01","restName":"Galaxy Diner","location":"Zone B"});
+
+INSERT INTO `theme_park`.`park`.`inventoryItems` (KEY, VALUE) VALUES
+  ("item::I01", {"itemId":"I01","itemName":"Souvenir Cap","category":"Merchandise","unitPrice":250,"quantityInStock":100,
+    "soldAt":[{"outletType":"shop","outletId":"SH01"}],
+    "suppliedBy":[{"vendorId":"V001","lastSupplyDate":"2026-08-01","quantity":200}]});
+INSERT INTO `theme_park`.`park`.`inventoryItems` (KEY, VALUE) VALUES
+  ("item::I02", {"itemId":"I02","itemName":"Cold Drink","category":"Food","unitPrice":60,"quantityInStock":500,
+    "soldAt":[{"outletType":"restaurant","outletId":"RT01"}],"suppliedBy":[]});
+
+-- ---------------------------------------------------------------------------
+-- FEEDBACK
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`feedback` (KEY, VALUE) VALUES
+  ("feedback::F01", {"feedbackId":"F01","visitorId":"P001","rideId":"R01","feedbackDate":"2026-08-15","comments":"Loved the Thunder Loop!","rating":5});
+INSERT INTO `theme_park`.`park`.`feedback` (KEY, VALUE) VALUES
+  ("feedback::F02", {"feedbackId":"F02","visitorId":"P002","rideId":"R02","feedbackDate":"2026-08-15","comments":"Splash Rapids was too short","rating":3});
+INSERT INTO `theme_park`.`park`.`feedback` (KEY, VALUE) VALUES
+  ("feedback::F03", {"feedbackId":"F03","visitorId":"P003","rideId":"R03","feedbackDate":"2026-08-15","comments":"Great family ride","rating":4});
+
+-- ---------------------------------------------------------------------------
+-- SAFETY: accidents, emergencies, lost & found
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`accidentReports` (KEY, VALUE) VALUES
+  ("accident::AR01", {"reportId":"AR01","rideId":"R04","reportedBy":"P002","reportDate":"2026-08-12","description":"Minor bruise from harness","severity":"MINOR"});
+
+INSERT INTO `theme_park`.`park`.`emergencyIncidents` (KEY, VALUE) VALUES
+  ("incident::EI01", {"incidentId":"EI01","rideId":"R04","reportedBy":"E001","incidentDate":"2026-08-12","incidentType":"Mechanical Stoppage","description":"Sky Drop stopped mid-ride","severity":"MAJOR"});
+
+INSERT INTO `theme_park`.`park`.`lostItems` (KEY, VALUE) VALUES
+  ("lostitem::L01", {"lostItemId":"L01","reportedBy":"P001","itemName":"Blue Wallet","foundDate":"2026-08-15","locationId":"Zone A","claimStatus":"UNCLAIMED"});
+INSERT INTO `theme_park`.`park`.`lostItems` (KEY, VALUE) VALUES
+  ("lostitem::L02", {"lostItemId":"L02","reportedBy":"E004","itemName":"Sunglasses","foundDate":"2026-08-14","locationId":"Zone B","claimStatus":"CLAIMED"});
+
+-- ---------------------------------------------------------------------------
+-- WEATHER LOG
+-- ---------------------------------------------------------------------------
+INSERT INTO `theme_park`.`park`.`weatherLogs` (KEY, VALUE) VALUES
+  ("weather::W01", {"weatherId":"W01","logDate":"2026-08-15","condition":"Sunny","temperatureC":33.5});
+INSERT INTO `theme_park`.`park`.`weatherLogs` (KEY, VALUE) VALUES
+  ("weather::W02", {"weatherId":"W02","logDate":"2026-08-14","condition":"Rainy","temperatureC":26.0});
